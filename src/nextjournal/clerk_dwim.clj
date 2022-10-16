@@ -9,8 +9,9 @@
 ;; being right. For example, it's not easy to choose between plotly
 ;; and vega.
 
-;; We will show this here for two viewers, `vega` and `hiccup` but
-;; this approach could of course be extended to more.
+;; We will show this here for three viewers, `vega`, `hiccup` and a
+;; tablecloth dataset viewer but this approach could of course be
+;; extended to more.
 (ns nextjournal.clerk-dwim
   (:require [nextjournal.clerk :as clerk]
             [nextjournal.clerk.viewer :as viewer]))
@@ -36,13 +37,34 @@
                                           (map? (second x)) rest))))
    :transform-fn viewer/html})
 
+;; We're starting with a little helper function for dynamically
+;; requiring a var.
+(defn try-requiring-resolve [sym]
+  (try (requiring-resolve sym)
+       (catch java.io.FileNotFoundException _e
+         nil)))
+
+;; We define the dataset viewer only when tablecloth can be found on
+;; the classpath. This allows us to define the viewer without requring
+;; a dependency on it. Note that this would be more convienient if we
+;; moved this to another ns.
+(def dataset-viewer
+  (when-let [dataset? (try-requiring-resolve 'tablecloth.api/dataset?)]
+    (let [column-names (resolve 'tablecloth.api/column-names)
+          rows (resolve 'tablecloth.api/rows)]
+      {:pred dataset?
+       :transform-fn (viewer/update-val (fn [ds] (viewer/table {:head (column-names ds)
+                                                               :rows (rows ds)})))})))
+
 (def all-dwim-viewers
-  [hiccup-viewer vega-viewer])
+  (cond-> [hiccup-viewer
+           vega-viewer]
+    dataset-viewer (conj dataset-viewer)))
 
 ;; We are adding these viewers to this `*ns*` here.
 
 ^:nextjournal.clerk/no-cache
-(clerk/add-viewers! [hiccup-viewer vega-viewer])
+(clerk/add-viewers! all-dwim-viewers)
 
 ;; If you with to modify Clerk's default viewers, you can call the
 ;; following function.
@@ -69,4 +91,8 @@
 
   [:strong "we " [:em "love"] " hiccup, right?"]
 
-  (vec (range 100)))
+  (vec (range 100))
+
+  (when-let [dataset (try-requiring-resolve 'tablecloth.api/dataset)]
+    (dataset "https://raw.githubusercontent.com/techascent/tech.ml.dataset/master/test/data/stocks.csv"
+             {:key-fn keyword})))
